@@ -2,7 +2,7 @@ streamlit
 python-dotenv
 google-generativeai
 llama-index
-llama-index-llms-gemini
+llama-index-llms-google-genai
 llama-index-embeddings-siliconflow
 llama-index-embeddings-huggingface
 llama-index-postprocessor-siliconflow-rerank
