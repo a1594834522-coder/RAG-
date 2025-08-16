@@ -3,7 +3,7 @@ import os
 import shutil
 from dotenv import load_dotenv
 import google.generativeai as genai
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings, StorageContext, load_index_from_storage, QueryBundle
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings, StorageContext, load_index_from_storage, QueryBundle, PromptTemplate
 from llama_index.core.node_parser import SentenceSplitter
 import time
 from llama_index.llms.gemini import Gemini
@@ -84,25 +84,17 @@ def load_data():
         print("索引加载完成。")
         return index
     else:
-        print("未找到现有索引，正在以安全模式（分批处理）创建新索引...")
+        print("未找到现有索引，正在创建新索引...")
         reader = SimpleDirectoryReader(data_dir)
         documents = reader.load_data()
         
-        node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=20)
+        # 优化1: 增大切分块大小以提升处理效率
+        node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=50)
         nodes = node_parser.get_nodes_from_documents(documents)
 
-        index = VectorStoreIndex(nodes=[]) # 创建一个空索引
-        batch_size = 50
-        for i in range(0, len(nodes), batch_size):
-            batch = nodes[i:i+batch_size]
-            try:
-                print(f"正在处理批次 {i//batch_size + 1}/{len(nodes)//batch_size + 1}...")
-                index.insert_nodes(batch)
-                print("批处理完成，等待1秒以避免API超限...")
-                time.sleep(1)
-            except Exception as e:
-                print(f"处理批-次时出错: {e}。")
-                break
+        # 优化2: 使用并行处理构建索引，移除手动分批和sleep
+        print(f"正在为 {len(nodes)} 个文本块创建嵌入，这将需要一些时间...")
+        index = VectorStoreIndex(nodes, show_progress=True)
         
         print("正在保存新索引...")
         index.storage_context.persist(persist_dir=storage_dir)
@@ -127,11 +119,28 @@ if "query_engine" not in st.session_state:
         top_n=3,
     )
 
-    # 3. 使用检索器和Reranker构建新的查询引擎
+    # 3. 定义一个更高级的问答提示词模板，引导模型进行分析而非复述
+    qa_template_str = (
+        "我们有以下背景知识：\n"
+        "---------------------\n"
+        "{context_str}\n"
+        "---------------------\n"
+        "你是一位专业的分析师。请你基于以上背景知识，对用户的问题进行深入、全面且有条理的分析和解答。\n"
+        "请不要简单地复述原文。你需要做到以下几点：\n"
+        "1. 综合并提炼背景知识中的关键信息。\n"
+        "2. 如果背景知识中包含多个相关片段，请将它们有机地联系起来。\n"
+        "3. 给出结构清晰、逻辑严谨的回答。\n"
+        "4. 解释你得出结论的推理过程。\n"
+        "现在，请根据以上要求，回答这个问题： {query_str}\n" 
+    )
+    qa_template = PromptTemplate(qa_template_str)
+
+    # 4. 使用检索器、Reranker和自定义的提示词模板构建新的查询引擎
     st.session_state.query_engine = RetrieverQueryEngine.from_args(
         retriever=retriever,
         node_postprocessors=[reranker],
         streaming=True,
+        text_qa_template=qa_template,
     )
     print("查询引擎初始化完成。")
 
@@ -160,9 +169,15 @@ if prompt := st.chat_input("向我提问..."):
         if not nodes or nodes[0].score < score_threshold:
             # 如果是，则说明本地知识库没有高相关度的内容，切换到通用知识模式
             st.info("本地知识库中未找到相关信息，正在使用模型的通用知识为您回答...")
-            # 直接调用LLM进行流式回答
+            # 直接调用LLM进行流式回答，并确保正确处理流数据
             response_stream = Settings.llm.stream_complete(prompt)
-            response = st.write_stream(response_stream)
+            
+            # 定义一个生成器函数来提取流中的文本块
+            def llm_response_generator(stream):
+                for chunk in stream:
+                    yield chunk.delta
+            
+            response = st.write_stream(llm_response_generator(response_stream))
         else:
             # 如果找到了高相关度的内容，则使用原有的RAG流程（仅用检索到的节点）来合成答案
             st.info("在本地知识库中找到相关信息，正在为您生成答案...")
