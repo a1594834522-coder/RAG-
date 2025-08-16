@@ -15,7 +15,7 @@ from llama_index.postprocessor.siliconflow_rerank import SiliconFlowRerank
 # 设置页面标题和图标
 st.set_page_config(page_title="Gemini RAG 助手", page_icon="✨")
 st.title("✨ Gemini RAG 智能助手")
-st.caption("由 Google Gemini 1.5 Pro 驱动")
+st.caption("由 Google Gemini 2.5 Pro 驱动")
 
 # --- 侧边栏管理 ---
 with st.sidebar:
