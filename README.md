@@ -14,7 +14,7 @@ This project is a Retrieval-Augmented Generation (RAG) application that uses the
 
 1.  **Clone the repository:**
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/a1594834522-coder/RAG-.git
     cd RAG-GEMINI
     ```
 

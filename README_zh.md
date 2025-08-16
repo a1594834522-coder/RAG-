@@ -14,7 +14,7 @@
 
 1.  **克隆仓库:**
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/a1594834522-coder/RAG-.git
     cd RAG-GEMINI
     ```
 
